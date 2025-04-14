@@ -17,7 +17,8 @@ class BaseTTSInfer:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.hparams = hparams
         self.device = device
-        self.data_dir = hparams['binary_data_dir']
+        #self.data_dir = hparams['binary_data_dir']
+        self.data_dir = 'text_to_audio/data/binary/training_set'
         self.preprocessor, self.preprocess_args = load_data_preprocessor()
         self.ph_encoder, self.word_encoder = self.preprocessor.load_dict(self.data_dir)
         self.ds_cls = FastSpeechWordDataset
