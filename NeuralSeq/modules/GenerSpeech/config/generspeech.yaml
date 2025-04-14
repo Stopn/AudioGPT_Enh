@@ -19,11 +19,11 @@ test_input_dir: ''
 
 # process
 binarizer_cls: data_gen.tts.base_binarizer_emotion.EmotionBinarizer
-audio_sample_rate: 16000
+audio_sample_rate: 44100
 hop_size: 256  # For 22050Hz, 275 ~= 12.5 ms (0.0125 * sample_rate)
 win_size: 1024  # For 22050Hz, 1100 ~= 50 ms (If None, win_size: fft_size) (0.05 * sample_rate)
-fmin: 80  # Set this to 55 if your speaker is male! if female, 95 should help taking off noise. (To test depending on dataset. Pitch info: male~[65, 260], female~[100, 525])
-fmax: 7600  # To be increased/reduced depending on data.
+fmin: 50  # Set this to 55 if your speaker is male! if female, 95 should help taking off noise. (To test depending on dataset. Pitch info: male~[65, 260], female~[100, 525])
+fmax: 8200  # To be increased/reduced depending on data.
 fft_size: 1024  # Extra window size is filled with 0 paddings to match this parameter
 min_level_db: -100
 ref_level_db: 20
