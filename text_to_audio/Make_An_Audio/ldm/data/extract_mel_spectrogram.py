@@ -149,3 +149,14 @@ TRANSFORMS_16000 = torchvision.transforms.Compose([
     # TrimSpec(860)
 ])
 
+TRANSFORMS_44100 = torchvision.transforms.Compose([
+    MelSpectrogram(sr=44100, nfft=2048, fmin=20, fmax=20000, nmels=128, hoplen=1024//4, spec_power=1),
+    LowerThresh(1e-5),
+    Log10(),
+    Multiply(20),
+    Subtract(20),
+    Add(100),
+    Divide(100),
+    Clip(0, 1.0)
+    # TrimSpec(860)
+])
