@@ -7,7 +7,7 @@ freeze_text_encoder_weights: True
 # AUDIO ENCODER CONFIG
 audioenc_name: 'Cnn14'
 out_emb: 2048
-sampling_rate: 44100
+sampling_rate: 96000
 duration: 9
 fmin: 50
 fmax: 14000
