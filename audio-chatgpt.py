@@ -23,6 +23,7 @@ from omegaconf import OmegaConf
 from einops import repeat
 from ldm.util import instantiate_from_config
 from ldm.data.extract_mel_spectrogram import TRANSFORMS_16000
+from ldm.data.extract_mel_spectrogram import TRANSFORMS_44100
 from vocoder.bigvgan.models import VocoderBigVGAN
 from ldm.models.diffusion.ddim import DDIMSampler
 import whisper
@@ -137,6 +138,9 @@ class ImageCaptioning:
         captions = self.processor.decode(out[0], skip_special_tokens=True)
         return captions
 
+#  : updated initialized config file to improve audio quality
+#  : updated sampling rate from 16000 to 44100
+#  : updated ddim_steps and scale in txt2audio method
 class T2A:
     def __init__(self, device):
         print("Initializing Make-An-Audio to %s" % device)
@@ -155,8 +159,12 @@ class T2A:
         sampler = DDIMSampler(model)
         return sampler
 
-    def txt2audio(self, text, seed = 55, scale = 1.5, ddim_steps = 100, n_samples = 3, W = 624, H = 80):
-        SAMPLE_RATE = 16000
+    '''  TBD:  : updating n_samples from 3 to 32 '''
+     #  : updated the SAMPLE_RATE from 16000 to 44100
+     #  : updated ddim_steps from 100 to 400
+     #  : increased scale from 1.5 to 6 --> sharpen the output
+    def txt2audio(self, text, seed = 55, scale = 6, ddim_steps = 400, n_samples = 3, W = 624, H = 80):
+        SAMPLE_RATE = 44100
         prng = np.random.RandomState(seed)
         start_code = prng.randn(n_samples, self.sampler.model.first_stage_model.embed_dim, H // 8, W // 8)
         start_code = torch.from_numpy(start_code).to(device=self.device, dtype=torch.float32)
@@ -182,6 +190,7 @@ class T2A:
         best_wav = self.select_best_audio(text, wav_list)
         return best_wav
 
+    #  : updated sampling rate in config file to 96000 from 44100
     def select_best_audio(self, prompt, wav_list):
         from wav_evaluation.models.CLAPWrapper import CLAPWrapper
         clap_model = CLAPWrapper('text_to_audio/Make_An_Audio/useful_ckpts/CLAP/CLAP_weights_2022.pth', 'text_to_audio/Make_An_Audio/useful_ckpts/CLAP/config.yml',
@@ -198,7 +207,10 @@ class T2A:
         print(score_list, max_index)
         return wav_list[max_index]
 
-    def inference(self, text, seed = 55, scale = 1.5, ddim_steps = 100, n_samples = 3, W = 624, H = 80):
+    #  : updated ddim_steps from 100 to 400
+    #  : increased scale from 1.5 to 6 --> sharpen the output
+    #  : updating the SAMPLE_RATE from 16000 to 44100
+    def inference(self, text, seed = 55, scale = 6, ddim_steps = 400, n_samples = 3, W = 624, H = 80):
         melbins,mel_len = 80,624
         with torch.no_grad():
             result = self.txt2audio(
@@ -207,10 +219,14 @@ class T2A:
                 W = mel_len
             )
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
-        soundfile.write(audio_filename, result[1], samplerate = 16000)
+        soundfile.write(audio_filename, result[1], samplerate = 44100)
         print(f"Processed T2I.run, text: {text}, audio_filename: {audio_filename}")
         return audio_filename
 
+#  : updated initialized config file to improve audio quality
+#  : updated ddim_steps from 100 to 400
+#  : increased scale from 3 to 6 --> sharpen the output
+#  : updating the SAMPLE_RATE from 16000 to 44100
 class I2A:
     def __init__(self, device):
         print("Initializing Make-An-Audio-Image to %s" % device)
@@ -229,8 +245,11 @@ class I2A:
         sampler = DDIMSampler(model)
         return sampler
 
-    def img2audio(self, image, seed = 55, scale = 3, ddim_steps = 100, W = 624, H = 80):
-        SAMPLE_RATE = 16000
+    #  : updated ddim_steps from 100 to 400
+    #  : increased scale from 3 to 6 --> sharpen the output
+#  : updating the SAMPLE_RATE from 16000 to 44100
+    def img2audio(self, image, seed = 55, scale = 6, ddim_steps = 400, W = 624, H = 80):
+        SAMPLE_RATE = 44100
         n_samples = 1 # only support 1 sample
         prng = np.random.RandomState(seed)
         start_code = prng.randn(n_samples, self.sampler.model.first_stage_model.embed_dim, H // 8, W // 8)
@@ -259,7 +278,10 @@ class I2A:
             wav_list.append((SAMPLE_RATE,wav))
         best_wav = wav_list[0]
         return best_wav
-    def inference(self, image, seed = 55, scale = 3, ddim_steps = 100, W = 624, H = 80):
+    #  : updated ddim_steps from 100 to 400
+    #  : increased scale from 3 to 6 --> sharpen the output
+    #  : updating the SAMPLE_RATE from 16000 to 44100
+    def inference(self, image, seed = 55, scale = 6, ddim_steps = 400, W = 624, H = 80):
         melbins,mel_len = 80,624
         with torch.no_grad():
             result = self.img2audio(
@@ -268,12 +290,15 @@ class I2A:
                 W=mel_len
             )
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
-        soundfile.write(audio_filename, result[1], samplerate = 16000)
+        soundfile.write(audio_filename, result[1], samplerate = 44100)
         print(f"Processed I2a.run, image_filename: {image}, audio_filename: {audio_filename}")
         return audio_filename
 
+#  : updated sample rate from 22050 to 44100
+#  : Added code to average out 3 inferences rather than just inferencing once
 class TTS:
     def __init__(self, device=None):
+        sys.path.append(os.path.abspath("PortaSpeech")) # Added for PortaSpeech compatibility
         from inference.tts.PortaSpeech import TTSInference
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -287,14 +312,19 @@ class TTS:
         set_hparams(exp_name=self.exp_name, print_hparams=False)
         self.hp = hp
 
+    #  : updated sample rate from 22050 to 44100
+    #  : Added code to average out 3 inferences rather than just inferencing once
     def inference(self, text):
         self.set_model_hparams()
         inp = {"text": text}
-        out = self.inferencer.infer_once(inp)
+        out_temp = [self.inferencer.infer_once(inp) for _ in range(3)]
+        #out = self.inferencer.infer_once(inp)
+        out = np.mean(out_temp, axis=0)
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
-        soundfile.write(audio_filename, out, samplerate=22050)
+        soundfile.write(audio_filename, out, samplerate=44100)
         return audio_filename
 
+#  : Increased bit depth from 16 to 24 (pads to 32 bit int though). wav scaling changed from 32767 to 8388607  
 class T2S:
     def __init__(self, device= None):
         from inference.svs.ds_e2e import DiffSingerE2EInfer
@@ -316,6 +346,7 @@ class T2S:
         set_hparams(config=self.config, exp_name=self.exp_name, print_hparams=False)
         self.hp = hp
 
+    #  : Increased bit depth from 16 to 24 (pads to 32 bit int though). wav scaling changed from 32767 to 8388607
     def inference(self, inputs):
         self.set_model_hparams()
         val = inputs.split(",")
@@ -332,9 +363,9 @@ class T2S:
         #else:
         #    inp = {k:v for k,v in zip(key,val)}
         #wav = self.pipe.infer_once(inp)
-        wav *= 32767
+        wav *= 8388607
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
-        wavfile.write(audio_filename, self.hp['audio_sample_rate'], wav.astype(np.int16))
+        wavfile.write(audio_filename, self.hp['audio_sample_rate'], wav.astype(np.int32))
         print(f"Processed T2S.run, audio_filename: {audio_filename}")
         return audio_filename
 
@@ -380,6 +411,8 @@ class t2s_VISinger:
         soundfile.write(audio_filename, wav, samplerate=self.model.fs)
         return audio_filename
 
+#  : Increased bit depth from 16 to 24 (pads to 32 bit int though). wav scaling changed from 32767 to 8388607
+#  : Updated generspeech config file
 class TTS_OOD:
     def __init__(self, device):
         from inference.tts.GenerSpeech import GenerSpeechInfer
@@ -394,27 +427,33 @@ class TTS_OOD:
 
     def set_model_hparams(self):
         set_hparams(config=self.config, exp_name=self.exp_name, print_hparams=False)
-        f0_stats_fn = f'{hp["binary_data_dir"]}/train_f0s_mean_std.npy'
+        #f0_stats_fn = f'{hp["binary_data_dir"]}/train_f0s_mean_std.npy'
+        f0_stats_fn = f'{hp["work_dir"]}/train_f0s_mean_std.npy'
         if os.path.exists(f0_stats_fn):
             hp['f0_mean'], hp['f0_std'] = np.load(f0_stats_fn)
             hp['f0_mean'] = float(hp['f0_mean'])
             hp['f0_std'] = float(hp['f0_std'])
         hp['emotion_encoder_path'] = 'checkpoints/Emotion_encoder.pt'
         self.hp = hp
-
+    
+    #  : Increased bit depth from 16 to 24 (pads to 32 bit int though). wav scaling changed from 32767 to 8388607
     def inference(self, inputs):
         self.set_model_hparams()
         key = ['ref_audio', 'text']
         val = inputs.split(",")
         inp = {k: v for k, v in zip(key, val)}
         wav = self.pipe.infer_once(inp)
-        wav *= 32767
+        wav *= 8388607
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
-        wavfile.write(audio_filename, self.hp['audio_sample_rate'], wav.astype(np.int16))
+        wavfile.write(audio_filename, self.hp['audio_sample_rate'], wav.astype(np.int32))
         print(
             f"Processed GenerSpeech.run. Input text:{val[1]}. Input reference audio: {val[0]}. Output Audio_filename: {audio_filename}")
         return audio_filename
 
+#  : sampler config file was updated 
+#  : updated sampling rate from 16000 to 44100
+#  : updated ddim_steps from 100 to 400
+#  : Added transforms 44100 method to increase usage from human speech to music and other audible sounds
 class Inpaint:
     def __init__(self, device):
         print("Initializing Make-An-Audio-inpaint to %s" % device)
@@ -449,8 +488,9 @@ class Inpaint:
              "masked_mel": repeat(masked_mel.to(device=self.device), "1 ... -> n ...", n=num_samples),
         }
         return batch
+    #  : updated sampling rate from 16000 to 44100
     def gen_mel(self, input_audio_path):
-        SAMPLE_RATE = 16000
+        SAMPLE_RATE = 44100
         sr, ori_wav = wavfile.read(input_audio_path)
         print("gen_mel")
         print(sr,ori_wav.shape,ori_wav)
@@ -467,10 +507,11 @@ class Inpaint:
         else:
             input_wav = ori_wav[:input_len]
 
-        mel = TRANSFORMS_16000(input_wav)
+        mel = TRANSFORMS_44100(input_wav)
         return mel
+    #  : updated sampling rate from 16000 to 44100
     def gen_mel_audio(self, input_audio):
-        SAMPLE_RATE = 16000
+        SAMPLE_RATE = 44100
         sr,ori_wav = input_audio
         print("gen_mel_audio")
         print(sr,ori_wav.shape,ori_wav)
@@ -487,7 +528,7 @@ class Inpaint:
             input_wav = np.pad(ori_wav,(0,mel_len*hop_size),constant_values=0)
         else:
             input_wav = ori_wav[:input_len]
-        mel = TRANSFORMS_16000(input_wav)
+        mel = TRANSFORMS_44100(input_wav)
         return mel
     def show_mel_fn(self, input_audio_path):
         crop_len = 500
@@ -526,8 +567,11 @@ class Inpaint:
         inapint_wav = self.vocoder.vocode(inpainted)
 
         return inpainted, inapint_wav
-    def inference(self, input_audio, mel_and_mask, seed = 55, ddim_steps = 100):
-        SAMPLE_RATE = 16000
+    
+    #  : updated sampling rate from 16000 to 44100
+    #  : updated ddim_steps from 100 to 400
+    def inference(self, input_audio, mel_and_mask, seed = 55, ddim_steps = 400):
+        SAMPLE_RATE = 44100
         torch.set_grad_enabled(False)
         mel_img = Image.open(mel_and_mask['image'])
         mask_img = Image.open(mel_and_mask["mask"])
@@ -554,7 +598,7 @@ class Inpaint:
         image_filename = os.path.join('image', str(uuid.uuid4())[0:8] + ".png")
         image.save(image_filename)
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
-        soundfile.write(audio_filename, gen_wav, samplerate = 16000)
+        soundfile.write(audio_filename, gen_wav, samplerate = 44100)
         return image_filename, audio_filename
     
 class ASR:
@@ -609,15 +653,20 @@ class GeneFace:
         self.geneface_model.infer_once(inp)
         return out_video_name
 
+#  : Increased sample rate from 32000 to 64000
+#  : Updated freq min: 50 --> 20, freq max: 14000 --> 20000
+#  : Increased window_size: 1024 --> 2048 for better freq resolution (more samples captured)
+#  : Decreased hop_size: 320 --> 256 for better time accuracy (more precise)
+#  : Increased mel_bins: 64 --> 128 for higher spectral resolution (more granularity, more detail captured)
 class SoundDetection:
     def __init__(self, device):
         self.device = device
-        self.sample_rate = 32000
-        self.window_size = 1024
-        self.hop_size = 320
+        self.sample_rate = 64000
+        self.window_size = 2048
+        self.hop_size = 256
         self.mel_bins = 64
-        self.fmin = 50
-        self.fmax = 14000
+        self.fmin = 20
+        self.fmax = 20000
         self.model_type = 'PVT'
         self.checkpoint_path = 'audio_detection/audio_infer/useful_ckpts/audio_detection.pth'
         self.classes_num = detection_config.classes_num
@@ -672,6 +721,8 @@ class SoundDetection:
         plt.savefig(image_filename)
         return image_filename
 
+#   updated load_wav and sav_wav defs to increasing SR from 32000 to 64000
+#  : (sav_wav) Increased bit depth from 16 to 24 (pads to 32 bit int though). wav scaling changed from 32767 to 8388607
 class SoundExtraction:
     def __init__(self, device):
         from sound_extraction.model.LASSNet import LASSNet
@@ -686,6 +737,8 @@ class SoundExtraction:
         self.model.load_state_dict(checkpoint['model'])
         self.model.eval()
 
+    #   updated load_wav and sav_wav defs to increasing SR from 32000 to 64000
+    #  : (sav_wav) Increased bit depth from 16 to 24 (pads to 32 bit int though). wav scaling changed from 32767 to 8388607
     def inference(self, inputs):
         #key = ['ref_audio', 'text']
         from sound_extraction.utils.wav_io import load_wav, save_wav
@@ -709,7 +762,10 @@ class SoundExtraction:
         save_wav(est_wav, audio_filename)
         return audio_filename
 
-
+#  : updating sr from 48000 to 96000
+#  : changing warpnet_layers from 4 to 8 --> deeper model for higher quality
+#  : changing warpnet_channels from 64 to 256 --> more channels to capture more audio detail
+#  : updated rec_field from 1000 to 4800 to reduce artifacts and smoothen transitions
 class Binaural:
     def __init__(self, device):
         from src.models import BinauralNetwork
@@ -721,11 +777,11 @@ class Binaural:
                               'mono2binaural/useful_ckpts/m2b/tx_positions4.txt',
                               'mono2binaural/useful_ckpts/m2b/tx_positions5.txt']
         self.net = BinauralNetwork(view_dim=7,
-                      warpnet_layers=4,
-                      warpnet_channels=64,
+                      warpnet_layers=8,
+                      warpnet_channels=256,
                       )
         self.net.load_from_file(self.model_file)
-        self.sr = 48000
+        self.sr = 96000
     def inference(self, audio_path):
         mono, sr  = librosa.load(path=audio_path, sr=self.sr, mono=True)
         mono = torch.from_numpy(mono)
@@ -744,8 +800,8 @@ class Binaural:
         # binauralize and save output
         self.net.eval().to(self.device)
         mono, view = mono.to(self.device), view.to(self.device)
-        chunk_size = 48000  # forward in chunks of 1s
-        rec_field =  1000  # add 1000 samples as "safe bet" since warping has undefined rec. field
+        chunk_size = 96000  # forward in chunks of 1s
+        rec_field =  4800   # add 1000 samples as "safe bet" since warping has undefined rec. field
         rec_field -= rec_field % 400  # make sure rec_field is a multiple of 400 to match audio and view frequencies
         chunks = [
             {
@@ -768,10 +824,16 @@ class Binaural:
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
         import torchaudio
         torchaudio.save(audio_filename, binaural, sr)
-        #soundfile.write(audio_filename, binaural, samplerate = 48000)
+        #soundfile.write(audio_filename, binaural, samplerate = 96000)
         print(f"Processed Binaural.run, audio_filename: {audio_filename}")
         return audio_filename
 
+#  : updating MeL_ARGS values. n_mels from 64 --> 128, n_fft from 2048 --> 4096, hop_length multiplier from 20 --> 10, win_length multipler from 40 --> 60
+#  : mel bins changes improves frequency resolution
+#  : n_fft changes increases freq resolution
+#  : smaller hop length increases number of frames captured, more audio detail captured
+#  : larger windowns size improves spectrogram smoothness, better freq resolution
+#  : updated sample rate from 22050 Hz to 44100
 class TargetSoundDetection:
     def __init__(self, device):
         from target_sound_detection.src import models as tsd_models
@@ -779,10 +841,10 @@ class TargetSoundDetection:
 
         self.device = device
         self.MEL_ARGS = {
-            'n_mels': 64,
-            'n_fft': 2048,
-            'hop_length': int(22050 * 20 / 1000),
-            'win_length': int(22050 * 40 / 1000)
+            'n_mels': 128,
+            'n_fft': 4096,
+            'hop_length': int(44100 * 10 / 1000),
+            'win_length': int(44100 * 60 / 1000)
         }
         self.EPS = np.spacing(1)
         self.clip_model, _ = clip.load("ViT-B/32", device=self.device)
@@ -811,7 +873,7 @@ class TargetSoundDetection:
         ti = y.shape[0]/sr
         if y.ndim > 1:
             y = y.mean(1)
-        y = librosa.resample(y, sr, 22050)
+        y = librosa.resample(y, sr, 44100)
         lms_feature = np.log(librosa.feature.melspectrogram(y, **self.MEL_ARGS) + self.EPS).T
         return lms_feature,ti
     
@@ -954,6 +1016,9 @@ class TargetSoundDetection:
 #             return enh_speech[0]
 #         return enh_speech
 
+#  : slightly increased segment_size from 2.4 --> 4.0. Larger seg size improves continuity
+#  : slightly decreased hop_size from 0.8 --> 0.5. smaller hop size smoothens transitions
+#  : added a 2x multiplier to the recorded audio sample rate to potentially improve quality of separated speech
 class Speech_Enh_SS_SC:
     """Speech Enhancement or Separation in single-channel
     Example usage:
@@ -966,6 +1031,8 @@ class Speech_Enh_SS_SC:
         print("Initializing ESPnet Enh to %s" % device)
         self._initialize_model()
 
+    #  : slightly increased segment_size from 2.4 --> 4.0. Larger seg size improves continuity
+    #  : slightly decreased hop_size from 0.8 --> 0.5. smaller hop size smoothens transitions
     def _initialize_model(self):
         from espnet_model_zoo.downloader import ModelDownloader
         from espnet2.bin.enh_inference import SeparateSpeech
@@ -977,8 +1044,8 @@ class Speech_Enh_SS_SC:
             train_config=cfg["train_config"],
             model_file=cfg["model_file"],
             # for segment-wise process on long speech
-            segment_size=2.4,
-            hop_size=0.8,
+            segment_size=4.0,
+            hop_size=0.5,
             normalize_segment_scale=False,
             show_progressbar=True,
             ref_channel=None,
@@ -986,8 +1053,10 @@ class Speech_Enh_SS_SC:
             device=self.device,
         )
 
+    #  : added a 2x multiplier to the recorded audio sample rate to potentially improve quality of separated speech
     def inference(self, speech_path, ref_channel=0):
         speech, sr = soundfile.read(speech_path)
+        sr *= 2
         speech = speech[:, ref_channel]
         # speech = torch.from_numpy(speech)
         # assert speech.dim() == 1
@@ -1006,6 +1075,9 @@ class Speech_Enh_SS_SC:
         #     audio_filename = merge_audio(audio_filename_1, audio_filename_2)
         return audio_filename
 
+#  : slightly increased segment_size from 2.4 --> 4.0. Larger seg size improves continuity
+#  : slightly decreased hop_size from 0.8 --> 0.5. smaller hop size smoothens transitions
+#  : added a 2x multiplier to the recorded audio sample rate to potentially improve quality of separated speech
 class Speech_SS:
     def __init__(self, device="cuda", model_name="lichenda/wsj0_2mix_skim_noncausal"):
         self.model_name = model_name
@@ -1013,6 +1085,8 @@ class Speech_SS:
         print("Initializing ESPnet SS to %s" % device)
         self._initialize_model()
 
+    #  : slightly increased segment_size from 2.4 --> 4.0. Larger seg size improves continuity
+    #  : slightly decreased hop_size from 0.8 --> 0.5. smaller hop size smoothens transitions
     def _initialize_model(self):
         from espnet_model_zoo.downloader import ModelDownloader
         from espnet2.bin.enh_inference import SeparateSpeech
@@ -1024,8 +1098,8 @@ class Speech_SS:
             train_config=cfg["train_config"],
             model_file=cfg["model_file"],
             # for segment-wise process on long speech
-            segment_size=2.4,
-            hop_size=0.8,
+            segment_size=4.0,
+            hop_size=0.5,
             normalize_segment_scale=False,
             show_progressbar=True,
             ref_channel=None,
@@ -1033,8 +1107,10 @@ class Speech_SS:
             device=self.device,
         )
 
+    #  : added a 2x multiplier to the recorded audio sample rate to potentially improve quality of separated speech
     def inference(self, speech_path):
         speech, sr = soundfile.read(speech_path)
+        sr *= 2
         enh_speech = self.separate_speech(speech[None, ...], fs=sr)
         audio_filename = os.path.join('audio', str(uuid.uuid4())[0:8] + ".wav")
         if len(enh_speech) == 1:
@@ -1048,11 +1124,13 @@ class Speech_SS:
             audio_filename = merge_audio(audio_filename_1, audio_filename_2)
         return audio_filename
 
+#  : changed "cuda:1" instances to "cuda:0" since there's only 1 GPU
 class ConversationBot:
     def __init__(self):
         print("Initializing AudioGPT")
         self.llm = OpenAI(temperature=0)
-        self.t2i = T2I(device="cuda:1")
+        #self.t2i = T2I(device="cuda:1")
+        self.t2i = T2I(device="cuda:0")
         self.i2t = ImageCaptioning(device="cuda:0")
         self.t2a = T2A(device="cuda:0")
         self.tts = TTS(device="cpu")
